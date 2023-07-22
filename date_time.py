@@ -9,13 +9,16 @@ def convert_to_datetime(date_input, time_input):
     '''
     Function takes users data and time input and converts it to datetime format.
     '''
-    # Convert date input
-    if '-' in date_input:
-        date = datetime.datetime.strptime(date_input, "%d-%m-%Y")
-    elif '.' in date_input:
-        date = datetime.datetime.strptime(date_input, "%d.%m.%Y")
-    else:
+    # Determine the date format based on the delimiter used
+    delimiter = '-' if '-' in date_input else '.' if '.' in date_input else None
+    if delimiter is None:
         raise ValueError("Invalid date format")
+    
+    # Parse the date input using the appropriate format
+    day, month, year = map(int, date_input.split(delimiter))
+    if year < 100:
+        year += 2000  # Add 2000 to the two-digit year to get the full year
+    date = datetime.datetime(year, month, day)
 
     # Convert time input
     if '-' in time_input:

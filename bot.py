@@ -107,7 +107,7 @@ def get_future_events():
     future_events = []
 
     for event in events:
-        event_datetime = date_time.convert_to_datetime(event['Date'], event['Time'])
+        event_datetime = convert_to_datetime(event['Date'], event['Time'])
         if event_datetime > current_datetime:
             future_events.append(event)
 
@@ -122,7 +122,7 @@ def handle_list_command(message):
     future_events = get_future_events()
 
     if future_events:
-        response = "Future Events:\n"
+        response = "Future Events:\n\n"
         for event in future_events:
             response += f"Event Name: {event['Name']}\nDate: {event['Date']}\nTime: {event['Time']}\n\n"
     else:
@@ -196,8 +196,8 @@ def check_events_and_notify():
                 time_value = row['Time']
                 event_name = row['Name']
                 notification_status = row['Notification_status']     
-                datetime_value = date_time.convert_to_datetime(date_value, time_value) # Generate date and time value from the Google sheet
-                remaining_time = date_time.get_remaining_time(datetime_value) # Get remaining time until the event
+                datetime_value = convert_to_datetime(date_value, time_value) # Generate date and time value from the Google sheet
+                remaining_time = get_remaining_time(datetime_value) # Get remaining time until the event
                 if remaining_time != None:
                     if 4 < remaining_time <= 24 and notification_status != "Notified_24hours":
                         send_notification_to_group(MY_CHAT_ID, event_name, "24 hours")
