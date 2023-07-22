@@ -6,8 +6,9 @@ from functools import wraps
 import telebot
 import threading
 import gspread
+from flask import Flask, jsonify
 
-import date_time
+from date_time import convert_to_datetime, get_remaining_time
 
 
 TOKEN = os.environ.get('TOKEN')
@@ -36,6 +37,8 @@ logger = logging.getLogger(__name__)
 # Create an instance of the bot
 bot = telebot.TeleBot(TOKEN)
 
+app = Flask(__name__)
+
 gc = gspread.service_account(GOOGLE_SHEETS_CREDS)
 spreadsheet = gc.open_by_key(GOOGLE_SPREADSHEET_ID)
 worksheet = spreadsheet.worksheet(GOOGLE_SHEET_NAME)
@@ -52,9 +55,9 @@ def connect_to_google_sheet():
         logger.error(f"An error occurred while connecting : {str(e)}")
 
 def restrict_chat_access(func):
-    '''
+    """
     Allows access only for users from group with MY_CHAT_ID
-    '''
+    """
     @wraps(func)
     def wrapper(message):
         chat_id = message.chat.id
@@ -63,9 +66,9 @@ def restrict_chat_access(func):
     return wrapper
 
 def update_spreadsheet(new_event):
-    '''
+    """
     Writing new event details to the Google spreadsheet
-    '''
+    """
     rows = worksheet.get_all_records()
     next_row = len(rows) + 1
     worksheet.append_row(new_event, value_input_option='USER_ENTERED', table_range=f'A{next_row}:C{next_row}')
@@ -140,6 +143,9 @@ def help_command(message):
 @bot.message_handler(commands=['event'])
 @restrict_chat_access
 def handle_event_command(message):
+    """
+    Takes event from users message and writes it to the Google Spreadsheet with update_spreadsheet method
+    """
     user = message.from_user
     logger.info(f"Received /event command from user: {user.username}")
 
@@ -159,21 +165,27 @@ def handle_event_command(message):
     bot.reply_to(message, response)
 
 def check_events_and_notify():    
-    '''
+    """
     Description of check_events
 
-    Function checks current events in the spreadsheet and set Notification_status flag:
+    Function checks current events in the spreadsheet and set Notification_status flag in Google Spreadsheet column D:
     Notified_24hours - notification for 24h till the event has been sent 
     Notified_4hours - notification for 4h  has been sent
     Notified_1hour - notification for 1h has been sent
 
     Returns:
        notification_is_required (boolean): If True that means that notification needs to be sent
-    '''
+    """
     connection_failures = 0
-    running = True
-    while running:
+    
+    while True:
         try:
+            # Check if the header row is present, if not, add it
+            header_row_values = ["Name", "Date", "Time", "Notification_status"]
+            header_row = worksheet.row_values(1)
+            if header_row != header_row_values:
+                worksheet.insert_row(header_row_values, 1)
+                logger.info("Added header row to the Google Sheet.")
             notification_is_required = False
             rows = worksheet.get_all_records()
 
@@ -197,24 +209,56 @@ def check_events_and_notify():
                         send_notification_to_group(MY_CHAT_ID, event_name, "1 hour")
                         worksheet.update(f'D{row_number}', 'Notified_1hour')
                 row_number += 1
-            time.sleep(5)
+            time.sleep(10)
         except Exception as e:
-            logger.error(f"An error occurred in the check_events_and_notify function: {str(e)}")
+            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            logger.error(f"An error occurred in the check_events_and_notify function at {current_time}: {str(e)}")
             connection_failures += 1
-            time.sleep(5)
-        if connection_failures > 5:
-            bot.send_message(chat_id=MY_CHAT_ID, text="Failed to connect to Google Sheet 5 times. Bot stopped checking the schedule!")
-            running = False
+            time.sleep(2)
+        if connection_failures == 3:
+            bot.send_message(chat_id=MY_CHAT_ID, text="Failed to connect to Google Sheet 3 times.")
+        if connection_failures == 15:
+            bot.send_message(chat_id=MY_CHAT_ID, text="Failed to connect to Google Sheet 15 times. Bot stopped checking the schedule!")
+            break
 
-def main():
-    check_events_thread = threading.Thread(target=check_events_and_notify)
+def check_thread_liveness(threads):
+    """Check the liveness of a list of threads.
+
+    This function checks the liveness of a list of threads and returns a status
+    based on their liveness. The liveness of a thread is determined by whether it
+    is currently running (alive) or not.
+
+    Parameters:
+        threads (list): A list of threading.Thread objects to be checked.
+    Returns:
+        tuple: A tuple containing the JSON response data and HTTP status code.
+    """
+    dead_threads = []
+    for thread in threads:
+        if not thread.is_alive():
+            dead_threads.append(thread.name)
+
+    if len(dead_threads) == 0:
+        return jsonify(status='OK', message='All threads are alive'), 200
+    elif len(dead_threads) == len(threads):
+        return jsonify(status='ERROR', message='All threads are not alive'), 500
+    else:
+        return jsonify(status='ERROR', message=f'Threads not alive: {", ".join(dead_threads)}'), 500
+
+@app.route('/health')
+def health_check():
+    threads = [check_events_thread, bot_thread]
+    return check_thread_liveness(threads)
+
+if __name__ == "__main__":
+    check_events_thread = threading.Thread(target=check_events_and_notify, name="Check events thread")
     check_events_thread.start()
 
-    bot_thread = threading.Thread(target=bot.infinity_polling)
+    bot_thread = threading.Thread(target=bot.infinity_polling, name="Telegram Bot thread")
     bot_thread.start()
+
+    # Run the Flask application
+    app.run()
 
     check_events_thread.join()
     bot_thread.join()
-
-if __name__ == "__main__":
-    main()
