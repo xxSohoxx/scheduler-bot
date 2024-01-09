@@ -115,32 +115,6 @@ def get_future_events():
 
     return future_events
 
-# Handler for the /birthday command
-@bot.message_handler(commands=['birthday'])
-@restrict_chat_access
-def handle_birthday_command(message):
-    """
-    Takes birthday details from users message and writes it to the Google Birthday Spreadsheet with update_spreadsheet method
-    """
-    user = message.from_user
-    logger.info(f"Received /birthday command from user: {user.username}")
-
-    command_text = message.text.split("/birthday", 1)[-1].strip()
-    birthday_details = command_text.split()
-    if len(birthday_details) == 2:
-        birthday_details[1] = convert_date(birthday_details[1]) #formating date input
-        person_name, date = birthday_details
-        try:
-            update_spreadsheet(birthday_details, birthday_worksheet)
-            logger.info(f"Date of birth for {person_name} has been added to spreadsheet.")
-            response = f"Date of birth has been added: Person - {person_name}, Date - {date}"
-        except Exception as e:
-            logger.error(f"An error occurred while updating the birthday spreadsheet: {str(e)}")
-            response = f"FAILED to write new birthday. Error: {str(e)}"
-    else:
-        response = "Please provide birthday details in the format: person date"
-    bot.reply_to(message, response)
-
 @bot.message_handler(commands=['list'])
 @restrict_chat_access
 def handle_list_command(message):
@@ -195,13 +169,22 @@ def handle_event_command(message):
         response = "Please provide event details in the format: event_name date time"
     bot.reply_to(message, response)
 
-# Handler for the /w command to check weather
+# Handler for the /w (weather) command to check weather
 @bot.message_handler(commands=['w'])
 @restrict_chat_access
 def weather_check_command(message):
     user = message.from_user
     logger.info(f"Received /w command from user: {user.username}")
     response = weather_one_time_forecast()
+    bot.reply_to(message, response)
+
+# Handler for the /b (birthdays) command to check weather
+@bot.message_handler(commands=['b'])
+@restrict_chat_access
+def birthday_check_command(message):
+    user = message.from_user
+    logger.info(f"Received /b command from user: {user.username}")
+    response = check_birthdays()
     bot.reply_to(message, response)
 
 def check_events_and_notify():    
@@ -264,34 +247,52 @@ def check_events_and_notify():
 
 def check_birthdays():
     '''
-    Method checks the birthdays in "Birthdays" worksheet and send notification with the list of persons
+    Method returns list of birthdays in "Birthdays" worksheet for today
     '''
-    while True:
-        try:
-            now = datetime.datetime.now()
-            if now.hour == 9 and now.minute == 0:
-                # Check if the header row is present, if not, add it
-                header_row_values = ["Person", "Date"]
-                header_row = birthday_worksheet.row_values(1)
-                if header_row != header_row_values:
-                    birthday_worksheet.insert_row(header_row_values, 1)
-                    logger.info("Added header row to the Birthdays Google Sheet.")
-                
-                birthdays = []
-                rows = birthday_worksheet.get_all_records()
-                for row in rows:
-                    date = datetime.datetime.strptime(row['Date'], '%d.%m.%Y')
-                    if date.day == now.day and date.month == now.month:
-                        birthdays.append(row['Person'])
+    try:
+        # Check if the header row is present, if not, add it
+        header_row_values = ["Person", "Date"]
+        header_row = birthday_worksheet.row_values(1)
+        if header_row != header_row_values:
+            birthday_worksheet.insert_row(header_row_values, 1)
+            logger.info("Added header row to the Birthdays Google Sheet.")
 
-                response = "Here is the list of birthdays for today:\n"
-                for birthday in birthdays:
-                    response += f'{birthday}\n'
-                bot.send_message(chat_id=MY_CHAT_ID, text=response)
-                logger.info(f"Birhday notification has been sent.")
-        except Exception as e:
-            logger.error(f"An error occurred in the check_birthdays function: {str(e)}")
-        time.sleep(30) 
+        now = datetime.datetime.now()
+        today_birthdays = []
+        rows = birthday_worksheet.get_all_records()
+        for row in rows:
+            date = datetime.datetime.strptime(row['Date'], '%d.%m.%Y')
+            if date.day == now.day and date.month == now.month:
+                today_birthdays.append(row)
+
+        if len(today_birthdays) > 0:
+            response = "Here is the list of birthdays for today:\n"
+            for person in today_birthdays:
+                birth_date = datetime.datetime.strptime(person['Date'], '%d.%m.%Y').date()
+                age = int(now.year) - int(birth_date.year)
+                response += f"{person['Person']} - {birth_date.strftime('%d %B, %Y')} (Age: {age})\n"
+            return response
+
+    except Exception as e:
+        logger.error(f"An error occurred in the check_birthdays function: {str(e)}")
+
+def daily_checks():
+    '''
+    Schedule 2 sub methods that check and send notifications about weather and birthdays for today
+    '''
+    def send_weather_forecast():
+        bot.send_message(chat_id=MY_CHAT_ID, text=weather_one_time_forecast())
+    schedule.every().day.at("07:25").do(send_weather_forecast)
+
+    def send_birthday_notification():
+        today_birthdays = check_birthdays()
+        if len(today_birthdays) > 0:
+            bot.send_message(chat_id=MY_CHAT_ID, text=today_birthdays)
+            logger.info("Birthday notifications with ages have been sent.")
+    schedule.every().day.at("07:25").do(send_birthday_notification)
+    while True:
+        schedule.run_pending()
+        time.sleep(60)
 
 def check_thread_liveness(threads):
     """Check the liveness of a list of threads.
@@ -317,32 +318,24 @@ def check_thread_liveness(threads):
     else:
         return jsonify(status='ERROR', message=f'Threads not alive: {", ".join(dead_threads)}'), 500
 
-def weather_check_daily():
-    schedule.every().day.at("07:20").do(weather_one_time_forecast)
-    while True:
-        schedule.run_pending()
-        time.sleep(60)
-
 @app.route('/health')
 def health_check():
-    threads = [check_events_thread, bot_thread]
+    threads = [check_events_thread, check_birthdays_thread, bot_thread, weather_check_daily_thread]
     return check_thread_liveness(threads)
 
 if __name__ == "__main__":
     check_events_thread = threading.Thread(target=check_events_and_notify, name="Check events thread")
     check_events_thread.start()
 
-    check_birthdays_thread = threading.Thread(target=check_birthdays, name="Check birthdays thread")
-    check_birthdays_thread.start()
-
     bot_thread = threading.Thread(target=bot.infinity_polling, name="Telegram Bot thread")
     bot_thread.start()
 
-    weather_check_daily_thread = threading.Thread(target=weather_check_daily, name="Weather check thread")
-    weather_check_daily_thread.start()
+    daily_checks_thread = threading.Thread(target=daily_checks, name="Weather and birthdays check thread")
+    daily_checks_thread.start()
 
     # Run the Flask application
     app.run()
 
     check_events_thread.join()
     bot_thread.join()
+    daily_checks_thread.join()
