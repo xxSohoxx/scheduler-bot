@@ -185,7 +185,10 @@ def birthday_check_command(message):
     user = message.from_user
     logger.info(f"Received /b command from user: {user.username}")
     response = check_birthdays()
-    bot.reply_to(message, response)
+    if response:
+        bot.reply_to(message, response)
+    else:
+        bot.reply_to(message, "No birthdays for today")
 
 def check_events_and_notify():    
     """
@@ -282,17 +285,18 @@ def daily_checks():
     '''
     def send_weather_forecast():
         bot.send_message(chat_id=MY_CHAT_ID, text=weather_one_time_forecast())
-    schedule.every().day.at("07:25").do(send_weather_forecast)
+        logger.info("Weather forecast has been sent.")
+    schedule.every().day.at("07:00").do(send_weather_forecast)
 
     def send_birthday_notification():
         today_birthdays = check_birthdays()
         if len(today_birthdays) > 0:
             bot.send_message(chat_id=MY_CHAT_ID, text=today_birthdays)
             logger.info("Birthday notifications with ages have been sent.")
-    schedule.every().day.at("07:25").do(send_birthday_notification)
+    schedule.every().day.at("07:01").do(send_birthday_notification)
     while True:
         schedule.run_pending()
-        time.sleep(60)
+        time.sleep(50)
 
 def check_thread_liveness(threads):
     """Check the liveness of a list of threads.
