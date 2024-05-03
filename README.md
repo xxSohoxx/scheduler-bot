@@ -81,3 +81,5 @@ Here is the list of available commands:
 Bot processes commands only from the group with CHAT_ID. It takes events and writes them to your Google Spreadsheet.
 Additionally, it checks the event list every 5 seconds and sends reminders 24 hours, 4 hours, and 1 hour prior to each event.
 
+## To Do  
+Organize project with poetry.

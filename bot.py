@@ -184,11 +184,7 @@ def weather_check_command(message):
 def birthday_check_command(message):
     user = message.from_user
     logger.info(f"Received /b command from user: {user.username}")
-    response = check_birthdays()
-    if response:
-        bot.reply_to(message, response)
-    else:
-        bot.reply_to(message, "No birthdays for today")
+    bot.reply_to(message, check_birthdays())
 
 def check_events_and_notify():    
     """
@@ -246,7 +242,7 @@ def check_events_and_notify():
             connection_failures += 1
         if connection_failures == 15:
             bot.send_message(chat_id=MY_CHAT_ID, text="Failed to connect to Google Sheet 15 times. Bot stopped checking the schedule!")
-            break
+            #break
 
 def check_birthdays():
     '''
@@ -262,6 +258,7 @@ def check_birthdays():
 
         now = datetime.datetime.now()
         today_birthdays = []
+        response = "No birthdays for today"
         rows = birthday_worksheet.get_all_records()
         for row in rows:
             date = datetime.datetime.strptime(row['Date'], '%d.%m.%Y')
@@ -275,6 +272,7 @@ def check_birthdays():
                 age = int(now.year) - int(birth_date.year)
                 response += f"{person['Person']} - {birth_date.strftime('%d %B, %Y')} (Age: {age})\n"
             return response
+        return response
 
     except Exception as e:
         logger.error(f"An error occurred in the check_birthdays function: {str(e)}")
@@ -286,14 +284,12 @@ def daily_checks():
     def send_weather_forecast():
         bot.send_message(chat_id=MY_CHAT_ID, text=weather_one_time_forecast())
         logger.info("Weather forecast has been sent.")
-    schedule.every().day.at("07:00").do(send_weather_forecast)
+    schedule.every().day.at("06:50").do(send_weather_forecast)
 
     def send_birthday_notification():
-        today_birthdays = check_birthdays()
-        if len(today_birthdays) > 0:
-            bot.send_message(chat_id=MY_CHAT_ID, text=today_birthdays)
+            bot.send_message(chat_id=MY_CHAT_ID, text=check_birthdays())
             logger.info("Birthday notifications with ages have been sent.")
-    schedule.every().day.at("07:01").do(send_birthday_notification)
+    schedule.every().day.at("06:50").do(send_birthday_notification)
     while True:
         schedule.run_pending()
         time.sleep(50)
@@ -340,6 +336,6 @@ if __name__ == "__main__":
     # Run the Flask application
     app.run()
 
-    check_events_thread.join()
-    bot_thread.join()
-    daily_checks_thread.join()
+    check_events_thread.start()
+    bot_thread.start()
+    daily_checks_thread.start()
