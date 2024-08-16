@@ -242,6 +242,7 @@ def check_events_and_notify():
             connection_failures += 1
         if connection_failures == 15:
             bot.send_message(chat_id=MY_CHAT_ID, text="Failed to connect to Google Sheet 15 times. Bot stopped checking the schedule!")
+            connection_failures += 1
             #break
 
 def check_birthdays():
